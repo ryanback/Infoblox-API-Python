@@ -39,56 +39,52 @@ class InfobloxBadInputParameter(Exception):
 
 
 class Infoblox(object):
-    """ Implements the following subset of Infoblox IPAM API via REST API
-    create_network
-    delete_network
-    create_networkcontainer
-    delete_networkcontainer
-    get_next_available_network
-    create_host_record
-    create_txt_record
-    delete_txt_record
-    delete_host_record
-    add_host_alias
-    delete_host_alias
-    create_cname_record
-    delete_cname_record
-    update_cname_record
-    create_dhcp_range
-    delete_dhcp_range
-    get_next_available_ip
-    get_host
-    get_host_by_ip
-    get_ip_by_host
-    get_host_by_regexp
-    get_txt_by_regexp
-    get_host_by_extattrs
-    get_host_extattrs
-    get_network
-    get_network_by_ip
-    get_network_by_extattrs
-    get_network_extattrs
-    update_network_extattrs
-    delete_network_extattrs
-    """
+    '''An API client for interacting with the Infoblox REST API.
 
-    def __init__(self,
-                 iba_ipaddr,
-                 iba_user,
-                 iba_password,
-                 iba_wapi_version,
-                 iba_dns_view,
-                 iba_network_view,
-                 iba_verify_ssl=False):
-        """ Class initialization method
+    Implements the following subset of the API:
+     - create_network
+     - delete_network
+     - create_networkcontainer
+     - delete_networkcontainer
+     - get_next_available_network
+     - create_host_record
+     - create_txt_record
+     - delete_txt_record
+     - delete_host_record
+     - add_host_alias
+     - delete_host_alias
+     - create_cname_record
+     - delete_cname_record
+     - update_cname_record
+     - create_dhcp_range
+     - delete_dhcp_range
+     - get_next_available_ip
+     - get_host
+     - get_host_by_ip
+     - get_ip_by_host
+     - get_host_by_regexp
+     - get_txt_by_regexp
+     - get_host_by_extattrs
+     - get_host_extattrs
+     - get_network
+     - get_network_by_ip
+     - get_network_by_extattrs
+     - get_network_extattrs
+     - update_network_extattrs
+     - delete_network_extattrs
+    '''
+    def __init__(self, iba_ipaddr, iba_user, iba_password, iba_wapi_version,
+                 iba_dns_view, iba_network_view, iba_verify_ssl=False):
+        '''Create an API client.
+
         :param iba_ipaddr: IBA IP address of management interface
         :param iba_user: IBA user name
         :param iba_password: IBA user password
         :param iba_wapi_version: IBA WAPI version (example: 1.0)
         :param iba_dns_view: IBA default view
         :param iba_network_view: IBA default network view
-        :param iba_verify_ssl: IBA SSL certificate validation (example: False)
-        """
+        :param iba_verify_ssl: IBA SSL certificate validation (default: False)
+        '''
         self.iba_host = iba_ipaddr
         self.iba_user = iba_user
         self.iba_password = iba_password
@@ -96,54 +92,65 @@ class Infoblox(object):
         self.iba_dns_view = iba_dns_view
         self.iba_network_view = iba_network_view
         self.iba_verify_ssl = iba_verify_ssl
+        self._base_url = 'https://{}/wapi/v{}'.format(self.iba_host,
+                                                      self.iba_wapi_version)
 
     def get_next_available_ip(self, network):
-        """ Implements IBA next_available_ip REST API call
-        Returns IP v4 address
-        :param network: network in CIDR format
-        """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' +  \
-                   self.iba_wapi_version + '/network?network=' \
-                   + network + '&network_view=' + self.iba_network_view
-        try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
-            r_json = r.json()
-            if r.status_code == 200:
-                if len(r_json) > 0:
-                    net_ref = r_json[0]['_ref']
-                    rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                        self.iba_wapi_version + '/' + net_ref + \
-                        '?_function=next_available_ip&num=1'
-                    r = requests.post(url=rest_url,
-                                      auth=(self.iba_user, self.iba_password),
-                                      verify=self.iba_verify_ssl)
-                    r_json = r.json()
-                    if r.status_code == 200:
-                        ip_v4 = r_json['ips'][0]
-                        return ip_v4
-                    else:
-                        if 'text' in r_json:
-                            if ('code' in r_json
-                                    and r_json['code'] == 'Client.Ibap.Data'):
-                                raise InfobloxNoIPavailableException(r_json['text'])
-                            else:
-                                raise InfobloxGeneralException(r_json['text'])
-                        else:
-                            r.raise_for_status()
-                else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
-            else:
-                if 'text' in r_json:
-                    raise InfobloxGeneralException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+        '''Implements IBA next_available_ip REST API call.
 
+        :param network: network in CIDR format
+        :returns: IP v4 address
+        '''
+        rest_url = '{}/network'.format(self._base_url)
+        params = {'network': network, 'network_view': self.iba_network_view}
+        r = requests.get(url=rest_url, params=params,
+                         auth=(self.iba_user, self.iba_password),
+                         verify=self.iba_verify_ssl)
+        data = r.json() if r.text else {}
+        if r.status_code != 200:
+            if 'text' in data:
+                raise InfobloxGeneralException(data['text'])
+            else:
+                r.raise_for_status()
+
+        if not data:
+            raise InfobloxNotFoundException("No requested network found: " + network)
+
+        net_ref = data[0]['_ref']
+        rest_url = '{}/{}'.format(self._base_url, net_ref)
+        params = {'_function': 'next_available_ip', 'num': 1}
+        r = requests.post(url=rest_url, params=params,
+                          auth=(self.iba_user, self.iba_password),
+                          verify=self.iba_verify_ssl)
+
+        data = r.json() if r.text else {}
+        if r.status_code == 200:
+            return data['ips'][0]
+
+        if 'text' not in data:
+            r.raise_for_status()
+
+        if data.get('code') == 'Client.Ibap.Data':
+            raise InfobloxNoIPavailableException(data['text'])
+        else:
+            raise InfobloxGeneralException(data['text'])
+
+    @staticmethod
+    def _form_ipv4addr_param(address):
+        # Create the appropriate param for the given address. If it's a range,
+        # then prefix it with "func:nextavailableip:".
+        cidr_format = '({0}.{0}.{0}.{0})(/\d+)?'.format('\d{1,3}')
+        cidr = re.compile(cidr_format)
+        match = cidr.match(address)
+        if not match:
+            raise InfobloxBadInputParameter('Expected IP or NET address in CIDR format')
+
+        ip, span = match.groups()
+        if span:
+            return 'func:nextavailableip:{}'.format(address)
+        else:
+            return ip
+        
     def create_host_record(self, address, fqdn):
         """ Implements IBA REST API call to create IBA host record
         Returns IP v4 address assigned to the host
