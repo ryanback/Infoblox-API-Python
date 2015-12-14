@@ -1,7 +1,7 @@
 Infoblox Python API CHANGELOG
 =============================
 
-xxxxx
+1.2.0
 -----
 
  * [Robert Grant] - Add command line interface for creating/deleting CNAMEs and HOST records
