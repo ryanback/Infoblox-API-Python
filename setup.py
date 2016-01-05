@@ -38,7 +38,8 @@ setup(
                  'infoblox'},
     entry_points={
         'console_scripts': [
-            'infoblox = infoblox.cli:cli'
+            'infoblox = infoblox.cli:cli',
+            'hlinfoblox = infoblox.hla:cli'
         ]
     },
     include_package_data=True,

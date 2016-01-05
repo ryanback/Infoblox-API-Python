@@ -1287,3 +1287,47 @@ class Infoblox(object):
             raise Exception(r)
         except Exception:
             raise
+
+    def get_lease_info(self, ipaddr):
+        """ Implements IBA REST API call to retrieve DHCP lease information.
+        Returns DHCP lease information
+        :param ipaddr: IP address for which we want lease information
+        """
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+            self.iba_wapi_version + '/lease?address=' + \
+            ipaddr + '&network_view=' + self.iba_network_view
+        print(rest_url)
+        try:
+            r = requests.get(url=rest_url,
+                             auth=(self.iba_user, self.iba_password),
+                             verify=self.iba_verify_ssl)
+            r_json = r.json()
+            print(r)
+            if r.status_code == 200:
+                if len(r_json) > 0:
+                    print(r_json)
+                    lease_ref = r_json[0]['_ref']
+                    rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                        self.iba_wapi_version + '/' + lease_ref
+                    print(rest_url)
+                    r = requests.get(url=rest_url,
+                                     auth=(self.iba_user, self.iba_password),
+                                     verify=self.iba_verify_ssl)
+                    r_json = r.json()
+                    print(r)
+                    if r.status_code == 200:
+                        if len(r_json) > 0:
+                            print(r_json)
+                    else:
+                        raise InfobloxNotFoundException("No requested DHCP lease found: " + lease_ref)
+                else:
+                    raise InfobloxNotFoundException("No requested DHCP lease found: " + ipaddr)
+            else:
+                if 'text' in r_json:
+                    raise InfobloxGeneralException(r_json['text'])
+                else:
+                    r.raise_for_status()
+        except ValueError:
+            raise Exception(r)
+        except Exception:
+            raise
