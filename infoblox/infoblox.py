@@ -39,6 +39,7 @@ class InfobloxBadInputParameter(Exception):
 
 
 class Infoblox(object):
+
     """ Implements the following subset of Infoblox IPAM API via REST API
     create_network
     delete_network
@@ -96,6 +97,10 @@ class Infoblox(object):
         self.iba_dns_view = iba_dns_view
         self.iba_network_view = iba_network_view
         self.iba_verify_ssl = iba_verify_ssl
+
+        self.util = Util(iba_ipaddr, iba_user, iba_password,
+                         iba_wapi_version, iba_dns_view, iba_network_view,
+                         iba_verify_ssl)
 
     def get_next_available_ip(self, network):
         """ Implements IBA next_available_ip REST API call
@@ -698,35 +703,20 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_host_by_ip(self, ip_v4, return_fields=None):
+    def get_host_by_ip(self, ip_v4, fields=None):
         """ Implements IBA REST API call to find hostname by IP address
         Returns array of host names in FQDN associated with given IP address
         :param ip_v4: IP v4 address
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/ipv4address?ip_address=' + \
-            ip_v4 + '&network_view=' + self.iba_network_view
-        if return_fields is not None:
-            rest_url += '&_return_fields=names,' + return_fields
-        try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
-            r_json = r.json()
-            if r.status_code == 200:
-                if len(r_json) > 0:
-                    return r_json[0]
-                else:
-                    raise InfobloxNotFoundException("No IP found: " + ip_v4)
-            else:
-                if 'text' in r_json:
-                    raise InfobloxGeneralException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+
+        r_json = self.util.get('ipv4address',
+                               query_params={
+                                'ip_address': ip_v4
+                               },
+                               fields=fields,
+                               notFoundText="No IP found: " + ip_v4
+                               )
+        return r_json[0]
 
     def get_ip_by_host(self, fqdn):
         """ Implements IBA REST API call to find IP addresses by hostname
@@ -813,6 +803,8 @@ class Infoblox(object):
         """
         if not fields:
             fields = 'network,netmask'
+        if type(fields) is not str:
+            fields = ','.join(fields)
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
             self.iba_wapi_version + '/network?network=' + network + \
             '&network_view=' + self.iba_network_view + '&_return_fields=' + \
@@ -1287,31 +1279,94 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_lease_info(self, ipaddr, return_fields=None):
-        """ Implements IBA REST API call to retrieve DHCP lease information.
-        Returns DHCP lease information
-        :param ipaddr: IP address for which we want lease information
+    def get_a_record_by_ip(self, name, fields=None):
+        """get_a_record_by_ip
+        :param ipaddr: IP address for which we want information
+        :param return_fields: Comma-separated list of fields to return.
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                   self.iba_wapi_version + \
-                   '/lease?address=' + ipaddr + \
-                   '&network_view=' + self.iba_network_view
-        if return_fields is not None:
-            rest_url += '&_return_fields=' + return_fields
 
-        print("\033[0;31mrest_url [%s]\033[0m" % rest_url)
+        r_json = self.util.get('record:a',
+                               query_params={
+                                'name': name
+                               },
+                               fields=fields,
+                               notFoundText="No A record found: " + name
+                               )
+        return r_json
+
+
+class Util(object):
+
+    def __init__(self,
+                 iba_ipaddr,
+                 iba_user,
+                 iba_password,
+                 iba_wapi_version,
+                 iba_dns_view,
+                 iba_network_view,
+                 iba_verify_ssl=False):
+        """ Class initialization method
+        :param iba_ipaddr: IBA IP address of management interface
+        :param iba_user: IBA user name
+        :param iba_password: IBA user password
+        :param iba_wapi_version: IBA WAPI version (example: 1.0)
+        :param iba_dns_view: IBA default view
+        :param iba_network_view: IBA default network view
+        :param iba_verify_ssl: IBA SSL certificate validation (example: False)
+        """
+        self.iba_host = iba_ipaddr
+        self.iba_user = iba_user
+        self.iba_password = iba_password
+        self.iba_wapi_version = iba_wapi_version
+        self.iba_dns_view = iba_dns_view
+        self.iba_network_view = iba_network_view
+        self.iba_verify_ssl = iba_verify_ssl
+
+    def get(self, uri, query_params=None, fields=None,
+            notFoundText=None):
+        """Execute a get operation.
+        :param uri: The URI component (e.g. -- lease, record:a)
+        :param query_params: Key/Value query parameter dictonary.
+        :param return_fields: String or list of fields to return.
+        :param notFoundText: Exception text when get returns no data.
+        """
+
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                   self.iba_wapi_version + '/' + uri
+
+        if query_params is None:
+            query_params = {}
+        if fields is not None:
+            if type(fields) == str:
+                query_params['_return_fields'] = fields
+            else:
+                query_params['_return_fields'] = ','.join(fields)
+
         try:
+            if False: # If debug is enabled, etc...
+                print("util.get([%s][%s][%s][%s]" %
+                      (uri, query_params, fields, notFoundText))
+                print(rest_url + '?' +
+                      '&'.join("%s=%s" % (key, val)
+                               for (key, val) in query_params.items()))
+
             r = requests.get(url=rest_url,
+                             params=query_params,
                              auth=(self.iba_user, self.iba_password),
                              verify=self.iba_verify_ssl)
+
             r_json = r.json()
-            print(r)
+
+            if False: # If debug is enabled, etc...
+                print("RESULT")
+                print(r)
+                print(r_json)
+
             if r.status_code == 200:
                 if len(r_json) > 0:
-                    return r_json[0]
+                    return r_json
                 else:
-                    raise InfobloxNotFoundException(
-                        "No requested DHCP lease found: " + ipaddr)
+                    raise InfobloxNotFoundException(notFoundText)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
