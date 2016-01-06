@@ -52,6 +52,27 @@ def hostrecord():
     '''Create and delete HOST records.'''
     pass
 
+
+@hostrecord.command('get_by_fqdn')
+@click.argument('fqdn')
+@click.option('--return-fields',
+              help='Comma-separated list of fields to include in output.')
+@click.pass_obj
+def get_by_fqdn(api, fqdn, return_fields):
+    data = api.get_host(fqdn, return_fields)
+    print(data)
+
+
+@hostrecord.command('get_by_ip')
+@click.argument('address')
+@click.option('--return-fields',
+              help='Comma-separated list of fields to include in output.')
+@click.pass_obj
+def get_host_by_ip(api, address, return_fields):
+    data = api.get_host_by_ip(address, return_fields)
+    print(data)
+
+
 @hostrecord.command('create')
 @click.argument('address')
 @click.argument('fqdn')
@@ -61,6 +82,7 @@ def create_host_record(api, address, fqdn):
     click.echo('creating host record %s = %s' % (address, fqdn))
     api.create_host_record(address, fqdn)
 
+
 @hostrecord.command('delete')
 @click.argument('fqdn')
 @click.pass_obj
@@ -68,3 +90,20 @@ def delete_host_record(api, fqdn):
     '''Delete a host record.'''
     click.echo('deleting host record %s' % (fqdn,))
     api.delete_host_record(fqdn)
+
+
+@cli.group()
+def lease():
+    '''Manipulate DHCP leases.'''
+    pass
+
+
+@lease.command('get_info')
+@click.argument('address')
+@click.option('--return-fields',
+              help='Comma-separated list of fields to include in output.')
+@click.pass_obj
+def get_lease_info(api, address, return_fields=None):
+    '''Get information about the given IP address as a JSON string.'''
+    data = api.get_lease_info(address, return_fields)
+    print(data)

@@ -698,7 +698,7 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_host_by_ip(self, ip_v4):
+    def get_host_by_ip(self, ip_v4, return_fields=None):
         """ Implements IBA REST API call to find hostname by IP address
         Returns array of host names in FQDN associated with given IP address
         :param ip_v4: IP v4 address
@@ -706,6 +706,8 @@ class Infoblox(object):
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
             self.iba_wapi_version + '/ipv4address?ip_address=' + \
             ip_v4 + '&network_view=' + self.iba_network_view
+        if return_fields is not None:
+            rest_url += '&_return_fields=names,' + return_fields
         try:
             r = requests.get(url=rest_url,
                              auth=(self.iba_user, self.iba_password),
@@ -713,10 +715,7 @@ class Infoblox(object):
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
-                    if len(r_json[0]['names']) > 0:
-                        return r_json[0]['names']
-                    else:
-                        raise InfobloxNotFoundException("No host records found for IP: " + ip_v4)
+                    return r_json[0]
                 else:
                     raise InfobloxNotFoundException("No IP found: " + ip_v4)
             else:
@@ -1288,15 +1287,19 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_lease_info(self, ipaddr):
+    def get_lease_info(self, ipaddr, return_fields=None):
         """ Implements IBA REST API call to retrieve DHCP lease information.
         Returns DHCP lease information
         :param ipaddr: IP address for which we want lease information
         """
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/lease?address=' + \
-            ipaddr + '&network_view=' + self.iba_network_view
-        print(rest_url)
+                   self.iba_wapi_version + \
+                   '/lease?address=' + ipaddr + \
+                   '&network_view=' + self.iba_network_view
+        if return_fields is not None:
+            rest_url += '&_return_fields=' + return_fields
+
+        print("\033[0;31mrest_url [%s]\033[0m" % rest_url)
         try:
             r = requests.get(url=rest_url,
                              auth=(self.iba_user, self.iba_password),
@@ -1305,23 +1308,10 @@ class Infoblox(object):
             print(r)
             if r.status_code == 200:
                 if len(r_json) > 0:
-                    print(r_json)
-                    lease_ref = r_json[0]['_ref']
-                    rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                        self.iba_wapi_version + '/' + lease_ref
-                    print(rest_url)
-                    r = requests.get(url=rest_url,
-                                     auth=(self.iba_user, self.iba_password),
-                                     verify=self.iba_verify_ssl)
-                    r_json = r.json()
-                    print(r)
-                    if r.status_code == 200:
-                        if len(r_json) > 0:
-                            print(r_json)
-                    else:
-                        raise InfobloxNotFoundException("No requested DHCP lease found: " + lease_ref)
+                    return r_json[0]
                 else:
-                    raise InfobloxNotFoundException("No requested DHCP lease found: " + ipaddr)
+                    raise InfobloxNotFoundException(
+                        "No requested DHCP lease found: " + ipaddr)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])

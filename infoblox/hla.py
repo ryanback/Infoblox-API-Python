@@ -35,12 +35,3 @@ def convert_lease_to_fixed_address(api):
        Must be executed on the node for which we want to convert.
     '''
     api.convert_lease_to_fixed_address()
-
-
-@cli.command('get_lease_info')
-@click.argument('address')
-@click.pass_obj
-def get_lease_info(api, address):
-    '''foo
-    '''
-    api.api.get_lease_info(address)

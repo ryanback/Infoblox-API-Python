@@ -45,8 +45,9 @@ class HighLevelInfobloxActions(object):
                             iba_wapi_version, iba_dns_view, iba_network_view,
                             iba_verify_ssl)
 
-    def convert_lease_to_fixed_address(self):
+    def convert_lease_to_fixed_address(self, address):
         """ Convert a DHCP-assigned leased address to a fixed address.
+        :param address: IP Address to be converted
         """
 
         # Get our current lease information
@@ -59,4 +60,7 @@ class HighLevelInfobloxActions(object):
 
         # Delete the records we have found
 
-        #
+        # Create the Host (where can we find fqdn?)
+        # self.api.create_host_record(address, fqdn)
+
+
