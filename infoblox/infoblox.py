@@ -101,7 +101,6 @@ class Infoblox(object):
         self._setup_session()
 
     def _setup_session(self):
-        print("inside setup_session")
         self.session = requests.Session()
         self.session.auth = (self.iba_user, self.iba_password)
         self.session.verify = self.iba_verify_ssl
