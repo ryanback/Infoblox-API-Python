@@ -158,9 +158,9 @@ class Infoblox(object):
     def create_host_record(self, address, fqdn, payload=None):
         """ Implements IBA REST API call to create IBA host record
         Returns IP v4 address assigned to the host
-        :param address: IP v4 address or NET v4 address in CIDR format to get
-            next_available_ip from
+        :param address: IP v4 address or NET v4 address in CIDR format
         :param fqdn: hostname in FQDN
+        :return: next available ip
         """
         if re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$", address):
             ipv4addr = 'func:nextavailableip:' + address
@@ -175,8 +175,11 @@ class Infoblox(object):
                        'ipv4addrs': [{'ipv4addr': ipv4addr,
                                       'configure_for_dhcp': False,
                                       }]}
-        r_json = self.api.util.post('record:host', payload=payload,
-                                    fields=['ipv4addrs'])
+        r_json = self.util.post('record:host', payload=payload,
+                                fields=['ipv4addrs'])
+        if r_json is None:
+            raise InfobloxGeneralException("Failed to create "
+                                           "host record for [%s]" % (address))
         return r_json['ipv4addrs'][0]['ipv4addr']
 
     def create_txt_record(self, text, fqdn):
@@ -1308,8 +1311,8 @@ class Infoblox(object):
                                )
         return r_json
 
-    def update_record(self, record, fields):
-        self.util.put(record, fields)
+    def update_record(self, record, fields, confirm):
+        self.util.put(record, fields, confirm)
 
 
 class Util(object):
@@ -1397,24 +1400,25 @@ class Util(object):
         except Exception:
             raise
 
-    def put(self, record, fields, confirm=True):
+    def put(self, record, payload, confirm=True):
         """Execute a put operation to update a record.
         :param record: The record to update.
-        :param fields: Fields to be updated.
+        :param payload: payload to be updated.
         """
 
         ref = record['_ref']
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                    self.iba_wapi_version + '/' + ref
 
+        print("Update [%s] with [%s]" % (rest_url, payload))
         if not confirm:
-            print("Update [%s] with [%s]" % (rest_url, fields))
+            print("DRY-RUN -- NO CHANGES MADE")
             return
 
         r = requests.put(url=rest_url,
-                         data=json.dumps(fields),
                          auth=(self.iba_user, self.iba_password),
-                         verify=self.iba_verify_ssl)
+                         verify=self.iba_verify_ssl,
+                         data=json.dumps(payload))
 
         if r.status_code == 200:
             return
@@ -1426,8 +1430,14 @@ class Util(object):
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                    self.iba_wapi_version + '/' + uri
 
-        if query_params is None:
-            query_params = {}
+        print("Create [%s] with [%s] returning [%s]" %
+              (rest_url, payload, fields))
+
+        if not confirm:
+            print("DRY-RUN -- NO CHANGES MADE")
+            return
+
+        query_params = {}
         if fields is not None:
             if type(fields) == str:
                 query_params['_return_fields'] = fields
@@ -1439,7 +1449,7 @@ class Util(object):
                               auth=(self.iba_user, self.iba_password),
                               verify=self.iba_verify_ssl,
                               params=query_params,
-                              data=payload)
+                              data=json.dumps(payload))
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return r_json['ipv4addrs'][0]['ipv4addr']
