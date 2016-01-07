@@ -30,10 +30,12 @@ def cli(ctx, ipaddr, user, password, wapi_version, dns_view, network_view,
 
 @cli.command('lease2fixed')
 @click.argument('address')
-@click.option('--confirm', default=False, type=click.BOOL)
+@click.option('--fqdn', default=None,
+              help='Required if we cannot determine it ourselves.')
+@click.option('--confirm', default=False, is_flag=True)
 @click.pass_obj
-def convert_lease_to_fixed_address(api, address, confirm=False):
+def convert_lease_to_fixed_address(api, address, fqdn=None, confirm=False):
     '''Convert a DHCP lease to a fixed address.
        Must be executed on the node for which we want to convert.
     '''
-    api.convert_lease_to_fixed_address(address, confirm)
+    api.convert_lease_to_fixed_address(address, fqdn=fqdn, confirm=confirm)

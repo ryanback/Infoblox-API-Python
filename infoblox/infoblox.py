@@ -22,6 +22,10 @@ class InfobloxNotFoundException(Exception):
     pass
 
 
+class InfobloxNotUpdatedException(Exception):
+    pass
+
+
 class InfobloxNoIPavailableException(Exception):
     pass
 
@@ -132,13 +136,15 @@ class Infoblox(object):
                         if 'text' in r_json:
                             if ('code' in r_json
                                     and r_json['code'] == 'Client.Ibap.Data'):
-                                raise InfobloxNoIPavailableException(r_json['text'])
+                                raise InfobloxNoIPavailableException(
+                                    r_json['text'])
                             else:
                                 raise InfobloxGeneralException(r_json['text'])
                         else:
                             r.raise_for_status()
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -149,7 +155,7 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def create_host_record(self, address, fqdn):
+    def create_host_record(self, address, fqdn, payload=None):
         """ Implements IBA REST API call to create IBA host record
         Returns IP v4 address assigned to the host
         :param address: IP v4 address or NET v4 address in CIDR format to get
@@ -162,30 +168,16 @@ class Infoblox(object):
             if re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address):
                 ipv4addr = address
             else:
-                raise InfobloxBadInputParameter('Expected IP or NET address in CIDR format')
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/record:host' + \
-            '?_return_fields=ipv4addrs'
-        payload = '{"ipv4addrs": [{"configure_for_dhcp": false,"ipv4addr": "' \
-            + ipv4addr + '"}],"name": "' + fqdn + \
-            '","view": "' + self.iba_dns_view + '"}'
-        try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
-            r_json = r.json()
-            if r.status_code == 200 or r.status_code == 201:
-                return r_json['ipv4addrs'][0]['ipv4addr']
-            else:
-                if 'text' in r_json:
-                    raise InfobloxGeneralException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+                raise InfobloxBadInputParameter(
+                    'Expected IP or NET address in CIDR format')
+        if payload is None:
+            payload = {'name': fqdn,
+                       'ipv4addrs': [{'ipv4addr': ipv4addr,
+                                      'configure_for_dhcp': False,
+                                      }]}
+        r_json = self.api.util.post('record:host', payload=payload,
+                                    fields=['ipv4addrs'])
+        return r_json['ipv4addrs'][0]['ipv4addr']
 
     def create_txt_record(self, text, fqdn):
         """ Implements IBA REST API call to create IBA txt record
@@ -247,9 +239,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -292,9 +286,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -346,9 +342,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + host_fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + host_fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -395,15 +393,19 @@ class Infoblox(object):
                                 return
                             else:
                                 if 'text' in r_json:
-                                    raise InfobloxGeneralException(r_json['text'])
+                                    raise InfobloxGeneralException(
+                                        r_json['text'])
                                 else:
                                     r.raise_for_status()
                         else:
-                            raise InfobloxNotFoundException("No requested host alias found: " + alias_fqdn)
+                            raise InfobloxNotFoundException(
+                                "No requested host alias found: " + alias_fqdn)
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + host_fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + host_fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -473,9 +475,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected cname record  reference: " + cname_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected cname record  reference: " + cname_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested cname record found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested cname record found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -591,9 +595,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No range reference received in IBA reply")
+                        raise InfobloxGeneralException(
+                            "No range reference received in IBA reply")
                 else:
-                    raise InfobloxNotFoundException("No requested range found: " + start_ip_v4 + "-" + end_ip_v4)
+                    raise InfobloxNotFoundException(
+                        "No requested range found: " + start_ip_v4 + "-" + end_ip_v4)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -604,40 +610,23 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_host(self, fqdn, fields=None):
+    def get_host(self, fqdn, fields=None, notFoundFail=True):
         """ Implements IBA REST API call to retrieve host record fields
         Returns hash table of fields with field name as a hash key
         :param fqdn: hostname in FQDN
         :param fields: comma-separated list of field names (optional)
         """
-        if fields:
-            rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                self.iba_wapi_version + '/record:host?name=' + \
-                fqdn + '&view=' + self.iba_dns_view + \
-                '&_return_fields=' + fields
-        else:
-            rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                self.iba_wapi_version + '/record:host?name=' + \
-                fqdn + '&view=' + self.iba_dns_view
-        try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
-            r_json = r.json()
-            if r.status_code == 200:
-                if len(r_json) > 0:
-                    return r_json[0]
-                else:
-                    raise InfobloxNotFoundException("No hosts found: " + fqdn)
-            else:
-                if 'text' in r_json:
-                    raise InfobloxNotFoundException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+        r_json = self.util.get('record:host',
+                               query_params={
+                                   'name': fqdn
+                               },
+                               fields=fields,
+                               notFoundText="No hosts found: " + fqdn,
+                               notFoundFail=notFoundFail
+                               )
+        if r_json is None and notFoundFail is False:
+            return r_json
+        return r_json[0]
 
     def get_host_by_regexp(self, fqdn):
         """ Implements IBA REST API call to retrieve host records by fqdn regexp filter
@@ -659,7 +648,8 @@ class Infoblox(object):
                         hosts.append(host['name'])
                     return hosts
                 else:
-                    raise InfobloxNotFoundException("No hosts found for regexp filter: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No hosts found for regexp filter: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -692,7 +682,8 @@ class Infoblox(object):
                         hosts[host['name']] = host['text']
                     return hosts
                 else:
-                    raise InfobloxNotFoundException("No txt records found for regexp filter: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No txt records found for regexp filter: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -703,7 +694,7 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_host_by_ip(self, ip_v4, fields=None):
+    def get_host_by_ip(self, ip_v4, fields=None, notFoundFail=True):
         """ Implements IBA REST API call to find hostname by IP address
         Returns array of host names in FQDN associated with given IP address
         :param ip_v4: IP v4 address
@@ -711,11 +702,14 @@ class Infoblox(object):
 
         r_json = self.util.get('ipv4address',
                                query_params={
-                                'ip_address': ip_v4
+                                   'ip_address': ip_v4
                                },
                                fields=fields,
-                               notFoundText="No IP found: " + ip_v4
+                               notFoundText="No IP found: " + ip_v4,
+                               notFoundFail=notFoundFail
                                )
+        if r_json is None and notFoundFail is False:
+            return r_json
         return r_json[0]
 
     def get_ip_by_host(self, fqdn):
@@ -739,7 +733,8 @@ class Infoblox(object):
                             ipv4addrs.append(ipv4addr['ipv4addr'])
                         return ipv4addrs
                     else:
-                        raise InfobloxNotFoundException("No host records found for FQDN: " + fqdn)
+                        raise InfobloxNotFoundException(
+                            "No host records found for FQDN: " + fqdn)
                 else:
                     raise InfobloxNotFoundException("No hosts found: " + fqdn)
             else:
@@ -775,14 +770,16 @@ class Infoblox(object):
                                 extattrs[attribute] = \
                                     r_json[0]['extattrs'][attribute]['value']
                             else:
-                                raise InfobloxNotFoundException("No requested attribute found: " + attribute)
+                                raise InfobloxNotFoundException(
+                                    "No requested attribute found: " + attribute)
                     else:
                         for attribute in r_json[0]['extattrs'].keys():
                             extattrs[attribute] = \
                                 r_json[0]['extattrs'][attribute]['value']
                     return extattrs
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -818,7 +815,8 @@ class Infoblox(object):
                 if len(r_json) > 0:
                     return r_json[0]
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -848,7 +846,8 @@ class Infoblox(object):
                     if 'network' in r_json[0]:
                         return r_json[0]['network']
                     else:
-                        raise InfobloxNotFoundException("No network found for IP: " + ip_v4)
+                        raise InfobloxNotFoundException(
+                            "No network found for IP: " + ip_v4)
                 else:
                     raise InfobloxNotFoundException("No IP found: " + ip_v4)
             else:
@@ -892,7 +891,8 @@ class Infoblox(object):
                             networks.append(network['network'])
                     return networks
                 else:
-                    raise InfobloxNotFoundException("No networks found for extensible attributes: " + attributes)
+                    raise InfobloxNotFoundException(
+                        "No networks found for extensible attributes: " + attributes)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -932,7 +932,8 @@ class Infoblox(object):
                             hosts.append(host['name'])
                     return hosts
                 else:
-                    raise InfobloxNotFoundException("No hosts found for extensible attributes: " + attributes)
+                    raise InfobloxNotFoundException(
+                        "No hosts found for extensible attributes: " + attributes)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -967,14 +968,16 @@ class Infoblox(object):
                                 extattrs[attribute] = \
                                     r_json[0]['extattrs'][attribute]['value']
                             else:
-                                raise InfobloxNotFoundException("No requested attribute found: " + attribute)
+                                raise InfobloxNotFoundException(
+                                    "No requested attribute found: " + attribute)
                     else:
                         for attribute in r_json[0]['extattrs'].keys():
                             extattrs[attribute] = \
                                 r_json[0]['extattrs'][attribute]['value']
                         return extattrs
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -1026,9 +1029,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network reference received in IBA reply for network: " + network)
+                        raise InfobloxGeneralException(
+                            "No network reference received in IBA reply for network: " + network)
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1078,9 +1083,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network reference received in IBA reply for network: " + network)
+                        raise InfobloxGeneralException(
+                            "No network reference received in IBA reply for network: " + network)
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1147,9 +1154,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network reference received in IBA reply for network: " + network)
+                        raise InfobloxGeneralException(
+                            "No network reference received in IBA reply for network: " + network)
                 else:
-                    raise InfobloxNotFoundException("No network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1216,9 +1225,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network container reference received in IBA reply for network container: " + networkcontainer)
+                        raise InfobloxGeneralException(
+                            "No network container reference received in IBA reply for network container: " + networkcontainer)
                 else:
-                    raise InfobloxNotFoundException("No network container found: " + networkcontainer)
+                    raise InfobloxNotFoundException(
+                        "No network container found: " + networkcontainer)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1262,13 +1273,15 @@ class Infoblox(object):
                         if 'text' in r_json:
                             if ('code' in r_json and
                                     r_json['code'] == 'Client.Ibap.Data'):
-                                raise InfobloxNoNetworkAvailableException(r_json['text'])
+                                raise InfobloxNoNetworkAvailableException(
+                                    r_json['text'])
                             else:
                                 raise InfobloxGeneralException(r_json['text'])
                         else:
                             r.raise_for_status()
                 else:
-                    raise InfobloxNotFoundException("No requested network container found: " + networkcontainer)
+                    raise InfobloxNotFoundException(
+                        "No requested network container found: " + networkcontainer)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1279,7 +1292,7 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_a_record_by_ip(self, name, fields=None):
+    def get_a_record_by_ip(self, name, fields=None, notFoundFail=True):
         """get_a_record_by_ip
         :param ipaddr: IP address for which we want information
         :param return_fields: Comma-separated list of fields to return.
@@ -1287,12 +1300,16 @@ class Infoblox(object):
 
         r_json = self.util.get('record:a',
                                query_params={
-                                'name': name
+                                   'name': name
                                },
                                fields=fields,
-                               notFoundText="No A record found: " + name
+                               notFoundText="No A record found: " + name,
+                               notFoundFail=notFoundFail
                                )
         return r_json
+
+    def update_record(self, record, fields):
+        self.util.put(record, fields)
 
 
 class Util(object):
@@ -1323,12 +1340,13 @@ class Util(object):
         self.iba_verify_ssl = iba_verify_ssl
 
     def get(self, uri, query_params=None, fields=None,
-            notFoundText=None):
+            notFoundText=None, notFoundFail=True):
         """Execute a get operation.
         :param uri: The URI component (e.g. -- lease, record:a)
         :param query_params: Key/Value query parameter dictonary.
         :param return_fields: String or list of fields to return.
         :param notFoundText: Exception text when get returns no data.
+        :param notFoundFail: Raise an exception if nothing is found.
         """
 
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
@@ -1343,7 +1361,7 @@ class Util(object):
                 query_params['_return_fields'] = ','.join(fields)
 
         try:
-            if False: # If debug is enabled, etc...
+            if False:  # If debug is enabled, etc...
                 print("util.get([%s][%s][%s][%s]" %
                       (uri, query_params, fields, notFoundText))
                 print(rest_url + '?' +
@@ -1357,7 +1375,7 @@ class Util(object):
 
             r_json = r.json()
 
-            if False: # If debug is enabled, etc...
+            if False:  # If debug is enabled, etc...
                 print("RESULT")
                 print(r)
                 print(r_json)
@@ -1365,8 +1383,66 @@ class Util(object):
             if r.status_code == 200:
                 if len(r_json) > 0:
                     return r_json
-                else:
+                elif notFoundFail:
                     raise InfobloxNotFoundException(notFoundText)
+                else:
+                    return None
+            else:
+                if 'text' in r_json:
+                    raise InfobloxGeneralException(r_json['text'])
+                else:
+                    r.raise_for_status()
+        except ValueError:
+            raise Exception(r)
+        except Exception:
+            raise
+
+    def put(self, record, fields, confirm=True):
+        """Execute a put operation to update a record.
+        :param record: The record to update.
+        :param fields: Fields to be updated.
+        """
+
+        ref = record['_ref']
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                   self.iba_wapi_version + '/' + ref
+
+        if not confirm:
+            print("Update [%s] with [%s]" % (rest_url, fields))
+            return
+
+        r = requests.put(url=rest_url,
+                         data=json.dumps(fields),
+                         auth=(self.iba_user, self.iba_password),
+                         verify=self.iba_verify_ssl)
+
+        if r.status_code == 200:
+            return
+
+        raise InfobloxNotUpdatedException("Failed to update " + ref)
+
+    def post(self, uri, payload, fields, confirm=True):
+
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                   self.iba_wapi_version + '/' + uri
+
+        if query_params is None:
+            query_params = {}
+        if fields is not None:
+            if type(fields) == str:
+                query_params['_return_fields'] = fields
+            else:
+                query_params['_return_fields'] = ','.join(fields)
+
+        try:
+            r = requests.post(url=rest_url,
+                              auth=(self.iba_user, self.iba_password),
+                              verify=self.iba_verify_ssl,
+                              params=query_params,
+                              data=payload)
+            r_json = r.json()
+            if r.status_code == 200 or r.status_code == 201:
+                return r_json['ipv4addrs'][0]['ipv4addr']
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
