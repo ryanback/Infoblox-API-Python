@@ -96,6 +96,15 @@ class Infoblox(object):
         self.iba_dns_view = iba_dns_view
         self.iba_network_view = iba_network_view
         self.iba_verify_ssl = iba_verify_ssl
+        self.base_url = "https://{}/wapi/v{}".format(self.iba_host,
+                                                      self.iba_wapi_version)
+        self._setup_session()
+
+    def _setup_session(self):
+        print("inside setup_session")
+        self.session = requests.Session()
+        self.session.auth = (self.iba_user, self.iba_password)
+        self.session.verify = iba_verify_ssl
 
     def get_next_available_ip(self, network):
         """ Implements IBA next_available_ip REST API call
@@ -414,15 +423,12 @@ class Infoblox(object):
         :param canonical: canonical name in FQDN format
         :param name: the name for a CNAME record in FQDN format
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/record:cname'
-        payload = '{"canonical": "' + canonical + '","name": "' + name + \
-            '","view": "' + self.iba_dns_view + '"}'
+        rest_url = "{}/record:cname".format(self.base_url, )
+        payload = {"canonical": canonical,
+                   "name": name,
+                   "view": self.iba_dns_view}
         try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
+            r = self.session.post(url=rest_url, data=payload)
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return
@@ -440,13 +446,11 @@ class Infoblox(object):
         """ Implements IBA REST API call to delete IBA cname record
         :param fqdn: cname in FQDN
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/record:cname?name=' + \
-            fqdn + '&view=' + self.iba_dns_view
+        rest_url = "{}/record:cname?name={}&view='{}".format(self.base_url,
+                                                             self.fqdn,
+                                                             self.iba_dns_view)
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -454,12 +458,8 @@ class Infoblox(object):
                     if (cname_ref and
                             re.match("record:cname\/[^:]+:([^\/]+)\/",
                                      cname_ref).group(1) == fqdn):
-                        rest_url = 'https://' + self.iba_host + '/wapi/v' \
-                            + self.iba_wapi_version + '/' + cname_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        rest_url = "{}/{}".format(self.base_url, cname_ref)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
