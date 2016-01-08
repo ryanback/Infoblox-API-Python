@@ -96,8 +96,8 @@ class Infoblox(object):
         self.iba_dns_view = iba_dns_view
         self.iba_network_view = iba_network_view
         self.iba_verify_ssl = iba_verify_ssl
-        self.base_url = "https://{}/wapi/v{}".format(self.iba_host,
-                                                     self.iba_wapi_version)
+        self.base_url = "https://{0}/wapi/v{1}".format(self.iba_host,
+                                                       self.iba_wapi_version)
         self._setup_session()
 
     def _setup_session(self):
@@ -390,7 +390,7 @@ class Infoblox(object):
         :param canonical: canonical name in FQDN format
         :param name: the name for a CNAME record in FQDN format
         """
-        rest_url = "{}/record:cname".format(self.base_url, )
+        rest_url = "{0}/record:cname".format(self.base_url)
         payload = {"canonical": canonical,
                    "name": name,
                    "view": self.iba_dns_view}
@@ -413,9 +413,8 @@ class Infoblox(object):
         """ Implements IBA REST API call to delete IBA cname record
         :param fqdn: cname in FQDN
         """
-        rest_url = "{}/record:cname?name={}&view={}".format(self.base_url,
-                                                            fqdn,
-                                                            self.iba_dns_view)
+        rest_url = "{0}/record:cname?name={1}&view={2}".format(
+            self.base_url, fqdn, self.iba_dns_view)
         try:
             r = self.session.get(url=rest_url)
             r_json = r.json()
@@ -425,7 +424,7 @@ class Infoblox(object):
                     if (cname_ref and
                             re.match("record:cname\/[^:]+:([^\/]+)\/",
                                      cname_ref).group(1) == fqdn):
-                        rest_url = "{}/{}".format(self.base_url, cname_ref)
+                        rest_url = "{0}/{1}".format(self.base_url, cname_ref)
                         r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
