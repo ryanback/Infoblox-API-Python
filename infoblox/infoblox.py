@@ -413,9 +413,9 @@ class Infoblox(object):
         """ Implements IBA REST API call to delete IBA cname record
         :param fqdn: cname in FQDN
         """
-        rest_url = "{}/record:cname?name={}&view='{}".format(self.base_url,
-                                                             fqdn,
-                                                             self.iba_dns_view)
+        rest_url = "{}/record:cname?name={}&view={}".format(self.base_url,
+                                                            fqdn,
+                                                            self.iba_dns_view)
         try:
             r = self.session.get(url=rest_url)
             r_json = r.json()
