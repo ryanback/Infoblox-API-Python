@@ -1452,7 +1452,7 @@ class Util(object):
                               data=json.dumps(payload))
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
-                return r_json['ipv4addrs'][0]['ipv4addr']
+                return r_json
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
