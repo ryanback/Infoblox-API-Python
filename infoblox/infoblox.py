@@ -1295,9 +1295,7 @@ class Util(object):
                                for (key, val) in query_params.items()))
 
             r = self.session.get(url=rest_url,
-                                 params=query_params,
-                                 auth=(self.iba_user, self.iba_password),
-                                 verify=self.iba_verify_ssl)
+                                 params=query_params)
 
             r_json = r.json()
 
@@ -1339,8 +1337,6 @@ class Util(object):
             return
 
         r = self.session.put(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl,
                              data=json.dumps(payload))
 
         if r.status_code == 200:
@@ -1369,8 +1365,6 @@ class Util(object):
 
         try:
             r = self.session.post(url=rest_url,
-                                  auth=(self.iba_user, self.iba_password),
-                                  verify=self.iba_verify_ssl,
                                   params=query_params,
                                   data=json.dumps(payload))
             r_json = r.json()
