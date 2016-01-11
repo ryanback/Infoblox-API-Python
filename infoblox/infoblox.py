@@ -22,6 +22,10 @@ class InfobloxNotFoundException(Exception):
     pass
 
 
+class InfobloxNotUpdatedException(Exception):
+    pass
+
+
 class InfobloxNoIPavailableException(Exception):
     pass
 
@@ -39,6 +43,7 @@ class InfobloxBadInputParameter(Exception):
 
 
 class Infoblox(object):
+
     """ Implements the following subset of Infoblox IPAM API via REST API
     create_network
     delete_network
@@ -96,6 +101,19 @@ class Infoblox(object):
         self.iba_dns_view = iba_dns_view
         self.iba_network_view = iba_network_view
         self.iba_verify_ssl = iba_verify_ssl
+        self.base_url = "https://{0}/wapi/v{1}".format(self.iba_host,
+                                                       self.iba_wapi_version)
+        self._setup_session()
+
+        self.util = Util(self.session,
+                         iba_ipaddr, iba_user, iba_password,
+                         iba_wapi_version, iba_dns_view, iba_network_view,
+                         iba_verify_ssl)
+
+    def _setup_session(self):
+        self.session = requests.Session()
+        self.session.auth = (self.iba_user, self.iba_password)
+        self.session.verify = self.iba_verify_ssl
 
     def get_next_available_ip(self, network):
         """ Implements IBA next_available_ip REST API call
@@ -106,9 +124,7 @@ class Infoblox(object):
                    self.iba_wapi_version + '/network?network=' \
                    + network + '&network_view=' + self.iba_network_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -116,9 +132,7 @@ class Infoblox(object):
                     rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                         self.iba_wapi_version + '/' + net_ref + \
                         '?_function=next_available_ip&num=1'
-                    r = requests.post(url=rest_url,
-                                      auth=(self.iba_user, self.iba_password),
-                                      verify=self.iba_verify_ssl)
+                    r = self.session.post(url=rest_url)
                     r_json = r.json()
                     if r.status_code == 200:
                         ip_v4 = r_json['ips'][0]
@@ -127,13 +141,15 @@ class Infoblox(object):
                         if 'text' in r_json:
                             if ('code' in r_json
                                     and r_json['code'] == 'Client.Ibap.Data'):
-                                raise InfobloxNoIPavailableException(r_json['text'])
+                                raise InfobloxNoIPavailableException(
+                                    r_json['text'])
                             else:
                                 raise InfobloxGeneralException(r_json['text'])
                         else:
                             r.raise_for_status()
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -144,12 +160,12 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def create_host_record(self, address, fqdn):
+    def create_host_record(self, address, fqdn, payload=None):
         """ Implements IBA REST API call to create IBA host record
         Returns IP v4 address assigned to the host
-        :param address: IP v4 address or NET v4 address in CIDR format to get
-            next_available_ip from
+        :param address: IP v4 address or NET v4 address in CIDR format
         :param fqdn: hostname in FQDN
+        :return: next available ip
         """
         if re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$", address):
             ipv4addr = 'func:nextavailableip:' + address
@@ -157,30 +173,22 @@ class Infoblox(object):
             if re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address):
                 ipv4addr = address
             else:
-                raise InfobloxBadInputParameter('Expected IP or NET address in CIDR format')
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/record:host' + \
-            '?_return_fields=ipv4addrs'
-        payload = '{"ipv4addrs": [{"configure_for_dhcp": false,"ipv4addr": "' \
-            + ipv4addr + '"}],"name": "' + fqdn + \
-            '","view": "' + self.iba_dns_view + '"}'
-        try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
-            r_json = r.json()
-            if r.status_code == 200 or r.status_code == 201:
-                return r_json['ipv4addrs'][0]['ipv4addr']
-            else:
-                if 'text' in r_json:
-                    raise InfobloxGeneralException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+                raise InfobloxBadInputParameter(
+                    'Expected IP or NET address in CIDR format')
+
+        if payload is None:
+            payload = {'name': fqdn,
+                       'view': self.iba_dns_view,
+                       'ipv4addrs': [{'ipv4addr': ipv4addr,
+                                      'configure_for_dhcp': False,
+                                      }]}
+
+        r_json = self.util.post('record:host', payload=payload,
+                                fields=['ipv4addrs'])
+        if r_json is None:
+            raise InfobloxGeneralException("Failed to create "
+                                           "host record for [%s]" % (address))
+        return r_json['ipv4addrs'][0]['ipv4addr']
 
     def create_txt_record(self, text, fqdn):
         """ Implements IBA REST API call to create IBA txt record
@@ -193,10 +201,7 @@ class Infoblox(object):
         payload = '{"text": "' + text + '","name": "' + fqdn + \
             '","view": "' + self.iba_dns_view + '"}'
         try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
+            r = self.session.post(url=rest_url, data=payload)
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return
@@ -218,9 +223,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/record:host?name=' + fqdn + '&view=' \
             + self.iba_dns_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -230,10 +233,7 @@ class Infoblox(object):
                                      host_ref).group(1) == fqdn):
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + host_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
@@ -242,9 +242,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -263,9 +265,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/record:txt?name=' + fqdn + \
             '&view=' + self.iba_dns_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -275,10 +275,7 @@ class Infoblox(object):
                                  host_ref).group(1) == fqdn):
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + host_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
@@ -287,9 +284,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -309,9 +308,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/record:host?name=' + host_fqdn + \
             '&view=' + self.iba_dns_view + '&_return_fields=name,aliases'
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -328,11 +325,7 @@ class Infoblox(object):
                             payload = '{"aliases": ["' + alias_fqdn + '"]}'
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + host_ref
-                        r = requests.put(url=rest_url,
-                                         auth=(self.iba_user,
-                                               self.iba_password),
-                                         verify=self.iba_verify_ssl,
-                                         data=payload)
+                        r = self.session.put(url=rest_url, data=payload)
                         if r.status_code == 200:
                             return
                         else:
@@ -341,9 +334,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + host_fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + host_fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -363,9 +358,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/record:host?name=' + host_fqdn + \
             '&view=' + self.iba_dns_view + '&_return_fields=name,aliases'
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -381,24 +374,24 @@ class Infoblox(object):
                             rest_url = 'https://' + self.iba_host + \
                                 '/wapi/v' + self.iba_wapi_version + \
                                 '/' + host_ref
-                            r = requests.put(url=rest_url,
-                                             auth=(self.iba_user,
-                                                   self.iba_password),
-                                             verify=self.iba_verify_ssl,
-                                             data=payload)
+                            r = self.session.put(url=rest_url, data=payload)
                             if r.status_code == 200:
                                 return
                             else:
                                 if 'text' in r_json:
-                                    raise InfobloxGeneralException(r_json['text'])
+                                    raise InfobloxGeneralException(
+                                        r_json['text'])
                                 else:
                                     r.raise_for_status()
                         else:
-                            raise InfobloxNotFoundException("No requested host alias found: " + alias_fqdn)
+                            raise InfobloxNotFoundException(
+                                "No requested host alias found: " + alias_fqdn)
                     else:
-                        raise InfobloxGeneralException("Received unexpected host reference: " + host_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected host reference: " + host_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + host_fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + host_fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -414,15 +407,12 @@ class Infoblox(object):
         :param canonical: canonical name in FQDN format
         :param name: the name for a CNAME record in FQDN format
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/record:cname'
-        payload = '{"canonical": "' + canonical + '","name": "' + name + \
-            '","view": "' + self.iba_dns_view + '"}'
+        rest_url = "{0}/record:cname".format(self.base_url)
+        payload = {"canonical": canonical,
+                   "name": name,
+                   "view": self.iba_dns_view}
         try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
+            r = self.session.post(url=rest_url, data=payload)
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return
@@ -440,13 +430,10 @@ class Infoblox(object):
         """ Implements IBA REST API call to delete IBA cname record
         :param fqdn: cname in FQDN
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/record:cname?name=' + \
-            fqdn + '&view=' + self.iba_dns_view
+        rest_url = "{0}/record:cname?name={1}&view={2}".format(
+            self.base_url, fqdn, self.iba_dns_view)
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -454,12 +441,8 @@ class Infoblox(object):
                     if (cname_ref and
                             re.match("record:cname\/[^:]+:([^\/]+)\/",
                                      cname_ref).group(1) == fqdn):
-                        rest_url = 'https://' + self.iba_host + '/wapi/v' \
-                            + self.iba_wapi_version + '/' + cname_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        rest_url = "{0}/{1}".format(self.base_url, cname_ref)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
@@ -468,9 +451,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("Received unexpected cname record  reference: " + cname_ref)
+                        raise InfobloxGeneralException(
+                            "Received unexpected cname record  reference: " + cname_ref)
                 else:
-                    raise InfobloxNotFoundException("No requested cname record found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested cname record found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -490,10 +475,7 @@ class Infoblox(object):
             '/wapi/v' + self.iba_wapi_version + '/record:cname'
         payload = json.dumps({'name': name})
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl,
-                             data=payload)
+            r = self.session.get(url=rest_url, data=payload)
             r_json = r.json()
             # RFC1912 - A CNAME can not coexist with any other data, we
             # should expect utmost one entry
@@ -504,10 +486,7 @@ class Infoblox(object):
                     json.JSONEncoder().encode(canonical) + '}'
                 rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                     self.iba_wapi_version + '/' + cname_ref
-                r = requests.put(url=rest_url,
-                                 auth=(self.iba_user, self.iba_password),
-                                 verify=self.iba_verify_ssl,
-                                 data=payload)
+                r = self.session.put(url=rest_url, data=payload)
                 if r.status_code == 200 or r.status_code == 201:
                     return
                 else:
@@ -536,10 +515,7 @@ class Infoblox(object):
         payload = '{"start_addr": "' + start_ip_v4 + \
             '","end_addr": "' + end_ip_v4 + '"}'
         try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
+            r = self.session.post(url=rest_url, data=payload)
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return
@@ -564,9 +540,7 @@ class Infoblox(object):
             start_ip_v4 + '?end_addr=' + end_ip_v4 + '&network_view=' + \
             self.iba_network_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -574,10 +548,7 @@ class Infoblox(object):
                     if range_ref:
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + range_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
@@ -586,9 +557,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No range reference received in IBA reply")
+                        raise InfobloxGeneralException(
+                            "No range reference received in IBA reply")
                 else:
-                    raise InfobloxNotFoundException("No requested range found: " + start_ip_v4 + "-" + end_ip_v4)
+                    raise InfobloxNotFoundException(
+                        "No requested range found: " + start_ip_v4 + "-" + end_ip_v4)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -599,40 +572,24 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_host(self, fqdn, fields=None):
+    def get_host(self, fqdn, fields=None, notFoundFail=True):
         """ Implements IBA REST API call to retrieve host record fields
         Returns hash table of fields with field name as a hash key
         :param fqdn: hostname in FQDN
         :param fields: comma-separated list of field names (optional)
         """
-        if fields:
-            rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                self.iba_wapi_version + '/record:host?name=' + \
-                fqdn + '&view=' + self.iba_dns_view + \
-                '&_return_fields=' + fields
-        else:
-            rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-                self.iba_wapi_version + '/record:host?name=' + \
-                fqdn + '&view=' + self.iba_dns_view
-        try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
-            r_json = r.json()
-            if r.status_code == 200:
-                if len(r_json) > 0:
-                    return r_json[0]
-                else:
-                    raise InfobloxNotFoundException("No hosts found: " + fqdn)
-            else:
-                if 'text' in r_json:
-                    raise InfobloxNotFoundException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+        r_json = self.util.get('record:host',
+                               query_params={
+                                   'name': fqdn,
+                                   'view': self.iba_dns_view
+                               },
+                               fields=fields,
+                               notFoundText="No hosts found: " + fqdn,
+                               notFoundFail=notFoundFail
+                               )
+        if r_json is None and notFoundFail is False:
+            return r_json
+        return r_json[0]
 
     def get_host_by_regexp(self, fqdn):
         """ Implements IBA REST API call to retrieve host records by fqdn regexp filter
@@ -644,9 +601,7 @@ class Infoblox(object):
             fqdn + '&view=' + self.iba_dns_view
         hosts = []
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -654,7 +609,8 @@ class Infoblox(object):
                         hosts.append(host['name'])
                     return hosts
                 else:
-                    raise InfobloxNotFoundException("No hosts found for regexp filter: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No hosts found for regexp filter: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -677,9 +633,7 @@ class Infoblox(object):
             '&view=' + self.iba_dns_view
         hosts = {}
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -687,7 +641,8 @@ class Infoblox(object):
                         hosts[host['name']] = host['text']
                     return hosts
                 else:
-                    raise InfobloxNotFoundException("No txt records found for regexp filter: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No txt records found for regexp filter: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -698,36 +653,33 @@ class Infoblox(object):
         except Exception:
             raise
 
-    def get_host_by_ip(self, ip_v4):
+    def get_host_by_ip(self, ip_v4, fields=None, notFoundFail=True):
         """ Implements IBA REST API call to find hostname by IP address
         Returns array of host names in FQDN associated with given IP address
         :param ip_v4: IP v4 address
         """
-        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
-            self.iba_wapi_version + '/ipv4address?ip_address=' + \
-            ip_v4 + '&network_view=' + self.iba_network_view
-        try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
-            r_json = r.json()
-            if r.status_code == 200:
-                if len(r_json) > 0:
-                    if len(r_json[0]['names']) > 0:
-                        return r_json[0]['names']
-                    else:
-                        raise InfobloxNotFoundException("No host records found for IP: " + ip_v4)
-                else:
-                    raise InfobloxNotFoundException("No IP found: " + ip_v4)
-            else:
-                if 'text' in r_json:
-                    raise InfobloxGeneralException(r_json['text'])
-                else:
-                    r.raise_for_status()
-        except ValueError:
-            raise Exception(r)
-        except Exception:
-            raise
+        r_json = self.get_ipv4address_by_ip(ip_v4, fields, notFoundFail)
+        if r_json is None and notFoundFail is False:
+            return r_json
+        return r_json['names']
+
+    def get_ipv4address_by_ip(self, ip_v4, fields=None, notFoundFail=True):
+        """ Implements IBA REST API call to find hostname by IP address
+        Returns ipv4address details associated with given IP address
+        :param ip_v4: IP v4 address
+        """
+        r_json = self.util.get('ipv4address',
+                               query_params={
+                                   'ip_address': ip_v4,
+                                   'network_view': self.iba_network_view
+                               },
+                               fields=fields,
+                               notFoundText="No IP found: " + ip_v4,
+                               notFoundFail=notFoundFail
+                               )
+        if r_json is None and notFoundFail is False:
+            return r_json
+        return r_json[0]
 
     def get_ip_by_host(self, fqdn):
         """ Implements IBA REST API call to find IP addresses by hostname
@@ -739,9 +691,7 @@ class Infoblox(object):
             fqdn + '&view=' + self.iba_dns_view
         ipv4addrs = []
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -750,7 +700,8 @@ class Infoblox(object):
                             ipv4addrs.append(ipv4addr['ipv4addr'])
                         return ipv4addrs
                     else:
-                        raise InfobloxNotFoundException("No host records found for FQDN: " + fqdn)
+                        raise InfobloxNotFoundException(
+                            "No host records found for FQDN: " + fqdn)
                 else:
                     raise InfobloxNotFoundException("No hosts found: " + fqdn)
             else:
@@ -773,9 +724,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/record:host?name=' + fqdn + \
             '&view=' + self.iba_dns_view + '&_return_fields=name,extattrs'
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -786,14 +735,16 @@ class Infoblox(object):
                                 extattrs[attribute] = \
                                     r_json[0]['extattrs'][attribute]['value']
                             else:
-                                raise InfobloxNotFoundException("No requested attribute found: " + attribute)
+                                raise InfobloxNotFoundException(
+                                    "No requested attribute found: " + attribute)
                     else:
                         for attribute in r_json[0]['extattrs'].keys():
                             extattrs[attribute] = \
                                 r_json[0]['extattrs'][attribute]['value']
                     return extattrs
                 else:
-                    raise InfobloxNotFoundException("No requested host found: " + fqdn)
+                    raise InfobloxNotFoundException(
+                        "No requested host found: " + fqdn)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -814,20 +765,21 @@ class Infoblox(object):
         """
         if not fields:
             fields = 'network,netmask'
+        if type(fields) is not str:
+            fields = ','.join(fields)
         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
             self.iba_wapi_version + '/network?network=' + network + \
             '&network_view=' + self.iba_network_view + '&_return_fields=' + \
             fields
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
                     return r_json[0]
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -848,16 +800,15 @@ class Infoblox(object):
             self.iba_wapi_version + '/ipv4address?ip_address=' + ip_v4 + \
             '&network_view=' + self.iba_network_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
                     if 'network' in r_json[0]:
                         return r_json[0]['network']
                     else:
-                        raise InfobloxNotFoundException("No network found for IP: " + ip_v4)
+                        raise InfobloxNotFoundException(
+                            "No network found for IP: " + ip_v4)
                 else:
                     raise InfobloxNotFoundException("No IP found: " + ip_v4)
             else:
@@ -890,9 +841,7 @@ class Infoblox(object):
             self.iba_network_view
         networks = []
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -901,7 +850,8 @@ class Infoblox(object):
                             networks.append(network['network'])
                     return networks
                 else:
-                    raise InfobloxNotFoundException("No networks found for extensible attributes: " + attributes)
+                    raise InfobloxNotFoundException(
+                        "No networks found for extensible attributes: " + attributes)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -930,9 +880,7 @@ class Infoblox(object):
             "&*".join(attributes.split(",")) + '&view=' + self.iba_dns_view
         hosts = []
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -941,7 +889,8 @@ class Infoblox(object):
                             hosts.append(host['name'])
                     return hosts
                 else:
-                    raise InfobloxNotFoundException("No hosts found for extensible attributes: " + attributes)
+                    raise InfobloxNotFoundException(
+                        "No hosts found for extensible attributes: " + attributes)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -963,9 +912,7 @@ class Infoblox(object):
             '&network_view=' + self.iba_network_view + \
             '&_return_fields=network,extattrs'
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -976,14 +923,16 @@ class Infoblox(object):
                                 extattrs[attribute] = \
                                     r_json[0]['extattrs'][attribute]['value']
                             else:
-                                raise InfobloxNotFoundException("No requested attribute found: " + attribute)
+                                raise InfobloxNotFoundException(
+                                    "No requested attribute found: " + attribute)
                     else:
                         for attribute in r_json[0]['extattrs'].keys():
                             extattrs[attribute] = \
                                 r_json[0]['extattrs'][attribute]['value']
                         return extattrs
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxNotFoundException(r_json['text'])
@@ -1006,9 +955,7 @@ class Infoblox(object):
             '&_return_fields=network,extattrs'
         extattrs = {}
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -1022,11 +969,7 @@ class Infoblox(object):
                         rest_url = 'https://' + self.iba_host + \
                             '/wapi/v' + self.iba_wapi_version + \
                             '/' + network_ref
-                        r = requests.put(url=rest_url,
-                                         auth=(self.iba_user,
-                                               self.iba_password),
-                                         verify=self.iba_verify_ssl,
-                                         data=payload)
+                        r = self.session.put(url=rest_url, data=payload)
                         if r.status_code == 200:
                             return
                         else:
@@ -1035,9 +978,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network reference received in IBA reply for network: " + network)
+                        raise InfobloxGeneralException(
+                            "No network reference received in IBA reply for network: " + network)
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1058,9 +1003,7 @@ class Infoblox(object):
             network + '&network_view=' + self.iba_network_view + \
             '&_return_fields=network,extattrs'
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -1074,11 +1017,7 @@ class Infoblox(object):
                             json.JSONEncoder().encode(extattrs) + '}'
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + network_ref
-                        r = requests.put(url=rest_url,
-                                         auth=(self.iba_user,
-                                               self.iba_password),
-                                         verify=self.iba_verify_ssl,
-                                         data=payload)
+                        r = self.session.put(url=rest_url, data=payload)
                         if r.status_code == 200:
                             return
                         else:
@@ -1087,9 +1026,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network reference received in IBA reply for network: " + network)
+                        raise InfobloxGeneralException(
+                            "No network reference received in IBA reply for network: " + network)
                 else:
-                    raise InfobloxNotFoundException("No requested network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No requested network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1109,10 +1050,7 @@ class Infoblox(object):
         payload = '{"network": "' + network + '","network_view": "' + \
             self.iba_network_view + '"}'
         try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
+            r = self.session.post(url=rest_url, data=payload)
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return
@@ -1134,9 +1072,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/network?network=' + \
             network + '&network_view=' + self.iba_network_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -1144,10 +1080,7 @@ class Infoblox(object):
                     if network_ref:
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + network_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
@@ -1156,9 +1089,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network reference received in IBA reply for network: " + network)
+                        raise InfobloxGeneralException(
+                            "No network reference received in IBA reply for network: " + network)
                 else:
-                    raise InfobloxNotFoundException("No network found: " + network)
+                    raise InfobloxNotFoundException(
+                        "No network found: " + network)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1178,10 +1113,7 @@ class Infoblox(object):
         payload = '{"network": "' + networkcontainer + \
             '","network_view": "' + self.iba_network_view + '"}'
         try:
-            r = requests.post(url=rest_url,
-                              auth=(self.iba_user, self.iba_password),
-                              verify=self.iba_verify_ssl,
-                              data=payload)
+            r = self.session.post(url=rest_url, data=payload)
             r_json = r.json()
             if r.status_code == 200 or r.status_code == 201:
                 return
@@ -1203,9 +1135,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/networkcontainer?network=' + \
             networkcontainer + '&network_view=' + self.iba_network_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -1213,10 +1143,7 @@ class Infoblox(object):
                     if network_ref:
                         rest_url = 'https://' + self.iba_host + '/wapi/v' + \
                             self.iba_wapi_version + '/' + network_ref
-                        r = requests.delete(url=rest_url,
-                                            auth=(self.iba_user,
-                                                  self.iba_password),
-                                            verify=self.iba_verify_ssl)
+                        r = self.session.delete(url=rest_url)
                         if r.status_code == 200:
                             return
                         else:
@@ -1225,9 +1152,11 @@ class Infoblox(object):
                             else:
                                 r.raise_for_status()
                     else:
-                        raise InfobloxGeneralException("No network container reference received in IBA reply for network container: " + networkcontainer)
+                        raise InfobloxGeneralException(
+                            "No network container reference received in IBA reply for network container: " + networkcontainer)
                 else:
-                    raise InfobloxNotFoundException("No network container found: " + networkcontainer)
+                    raise InfobloxNotFoundException(
+                        "No network container found: " + networkcontainer)
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])
@@ -1249,9 +1178,7 @@ class Infoblox(object):
             self.iba_wapi_version + '/networkcontainer?network=' + \
             networkcontainer + '&network_view=' + self.iba_network_view
         try:
-            r = requests.get(url=rest_url,
-                             auth=(self.iba_user, self.iba_password),
-                             verify=self.iba_verify_ssl)
+            r = self.session.get(url=rest_url)
             r_json = r.json()
             if r.status_code == 200:
                 if len(r_json) > 0:
@@ -1260,9 +1187,7 @@ class Infoblox(object):
                         self.iba_wapi_version + '/' + net_ref + \
                         '?_function=next_available_network&cidr=' + \
                         str(cidr) + '&num=1'
-                    r = requests.post(url=rest_url,
-                                      auth=(self.iba_user, self.iba_password),
-                                      verify=self.iba_verify_ssl)
+                    r = self.session.post(url=rest_url)
                     r_json = r.json()
                     if r.status_code == 200:
                         network = r_json['networks'][0]
@@ -1271,13 +1196,180 @@ class Infoblox(object):
                         if 'text' in r_json:
                             if ('code' in r_json and
                                     r_json['code'] == 'Client.Ibap.Data'):
-                                raise InfobloxNoNetworkAvailableException(r_json['text'])
+                                raise InfobloxNoNetworkAvailableException(
+                                    r_json['text'])
                             else:
                                 raise InfobloxGeneralException(r_json['text'])
                         else:
                             r.raise_for_status()
                 else:
-                    raise InfobloxNotFoundException("No requested network container found: " + networkcontainer)
+                    raise InfobloxNotFoundException(
+                        "No requested network container found: " + networkcontainer)
+            else:
+                if 'text' in r_json:
+                    raise InfobloxGeneralException(r_json['text'])
+                else:
+                    r.raise_for_status()
+        except ValueError:
+            raise Exception(r)
+        except Exception:
+            raise
+
+    def get_a_record_by_ip(self, name, fields=None, notFoundFail=True):
+        """get_a_record_by_ip
+        :param ipaddr: IP address for which we want information
+        :param return_fields: Comma-separated list of fields to return.
+        """
+
+        r_json = self.util.get('record:a',
+                               query_params={
+                                   'name': name
+                               },
+                               fields=fields,
+                               notFoundText="No A record found: " + name,
+                               notFoundFail=notFoundFail
+                               )
+        return r_json
+
+    def update_record(self, record, fields, confirm):
+        self.util.put(record, fields, confirm)
+
+
+class Util(object):
+
+    def __init__(self,
+                 session,
+                 iba_ipaddr,
+                 iba_user,
+                 iba_password,
+                 iba_wapi_version,
+                 iba_dns_view,
+                 iba_network_view,
+                 iba_verify_ssl=False):
+        """ Class initialization method
+        :param session: Request session.
+        :param iba_ipaddr: IBA IP address of management interface
+        :param iba_user: IBA user name
+        :param iba_password: IBA user password
+        :param iba_wapi_version: IBA WAPI version (example: 1.0)
+        :param iba_dns_view: IBA default view
+        :param iba_network_view: IBA default network view
+        :param iba_verify_ssl: IBA SSL certificate validation (example: False)
+        """
+        self.session = session
+        self.iba_host = iba_ipaddr
+        self.iba_user = iba_user
+        self.iba_password = iba_password
+        self.iba_wapi_version = iba_wapi_version
+        self.iba_dns_view = iba_dns_view
+        self.iba_network_view = iba_network_view
+        self.iba_verify_ssl = iba_verify_ssl
+
+    def get(self, uri, query_params=None, fields=None,
+            notFoundText=None, notFoundFail=True):
+        """Execute a get operation.
+        :param uri: The URI component (e.g. -- lease, record:a)
+        :param query_params: Key/Value query parameter dictonary.
+        :param return_fields: String or list of fields to return.
+        :param notFoundText: Exception text when get returns no data.
+        :param notFoundFail: Raise an exception if nothing is found.
+        """
+
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                   self.iba_wapi_version + '/' + uri
+
+        if query_params is None:
+            query_params = {}
+        if fields is not None:
+            if type(fields) == str:
+                query_params['_return_fields'] = fields
+            else:
+                query_params['_return_fields'] = ','.join(fields)
+
+        try:
+            if False:  # If debug is enabled, etc...
+                print("util.get([%s][%s][%s][%s]" %
+                      (uri, query_params, fields, notFoundText))
+                print(rest_url + '?' +
+                      '&'.join("%s=%s" % (key, val)
+                               for (key, val) in query_params.items()))
+
+            r = self.session.get(url=rest_url,
+                                 params=query_params)
+
+            r_json = r.json()
+
+            if False:  # If debug is enabled, etc...
+                print("RESULT")
+                print(r)
+                print(r_json)
+
+            if r.status_code == 200:
+                if len(r_json) > 0:
+                    return r_json
+                elif notFoundFail:
+                    raise InfobloxNotFoundException(notFoundText)
+                else:
+                    return None
+            else:
+                if 'text' in r_json:
+                    raise InfobloxGeneralException(r_json['text'])
+                else:
+                    r.raise_for_status()
+        except ValueError:
+            raise Exception(r)
+        except Exception:
+            raise
+
+    def put(self, record, payload, confirm=True):
+        """Execute a put operation to update a record.
+        :param record: The record to update.
+        :param payload: payload to be updated.
+        """
+
+        ref = record['_ref']
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                   self.iba_wapi_version + '/' + ref
+
+        print("Update [%s] with [%s]" % (rest_url, payload))
+        if not confirm:
+            print("DRY-RUN -- NO CHANGES MADE")
+            return
+
+        r = self.session.put(url=rest_url,
+                             data=json.dumps(payload))
+
+        if r.status_code == 200:
+            return
+
+        raise InfobloxNotUpdatedException("Failed to update " + ref)
+
+    def post(self, uri, payload, fields, confirm=True):
+
+        rest_url = 'https://' + self.iba_host + '/wapi/v' + \
+                   self.iba_wapi_version + '/' + uri
+
+        print("Create [%s] with [%s] returning [%s]" %
+              (rest_url, payload, fields))
+
+        if not confirm:
+            print("DRY-RUN -- NO CHANGES MADE")
+            return
+
+        query_params = {}
+        if fields is not None:
+            if type(fields) == str:
+                query_params['_return_fields'] = fields
+            else:
+                query_params['_return_fields'] = ','.join(fields)
+
+        try:
+            r = self.session.post(url=rest_url,
+                                  params=query_params,
+                                  data=json.dumps(payload))
+            r_json = r.json()
+            if r.status_code == 200 or r.status_code == 201:
+                return r_json
             else:
                 if 'text' in r_json:
                     raise InfobloxGeneralException(r_json['text'])

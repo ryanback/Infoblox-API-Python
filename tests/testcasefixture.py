@@ -1,6 +1,10 @@
-from infoblox import infoblox
-import unittest
 import os
+try:
+    import unittest2 as unittest
+except ImportError:
+    import unittest
+
+from infoblox import infoblox
 
 
 class TestCaseWithFixture(unittest.TestCase):
@@ -16,7 +20,7 @@ class TestCaseWithFixture(unittest.TestCase):
 
     @classmethod
     def load_fixture(cls, fixture_name):
-        filename = "{}/data/{}.json".format(cls.location,
+        filename = "{0}/data/{1}.json".format(cls.location,
                                             cls.fixture_name)
         with open(filename, 'r') as file:
             return file.read()
