@@ -55,7 +55,7 @@ class HighLevelInfobloxActions(object):
         """
 
         # Get our host information
-        ipv4address_record = self.api.get_host_by_ip(address, fields=[
+        ipv4address_record = self.api.get_ipv4address_by_ip(address, fields=[
             'dhcp_client_identifier',
             'mac_address',
             'names',
@@ -108,6 +108,7 @@ class HighLevelInfobloxActions(object):
                 "Cannot determine fqdn for new HOST Record for [%s]" %
                 (address)))
         payload = {'name': fqdn,
+                   'view': self.iba_dns_view,
                    'ipv4addrs': [{'ipv4addr': address,
                                   'configure_for_dhcp': True,
                                   'match_client': 'MAC_ADDRESS',
