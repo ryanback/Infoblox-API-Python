@@ -1,6 +1,11 @@
 Infoblox Python API CHANGELOG
 =============================
 
+1.3.1
+----
+
+* [Wei Lei] - Change package name to be infoblox_cli
+
 1.3.0
 -----
 
