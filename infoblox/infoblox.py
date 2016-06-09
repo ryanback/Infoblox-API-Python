@@ -167,14 +167,21 @@ class Infoblox(object):
         :param fqdn: hostname in FQDN
         :return: next available ip
         """
+        # CIDR
         if re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$", address):
             ipv4addr = 'func:nextavailableip:' + address
+
+        # range
+        elif re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address):
+            ipv4addr = 'func:nextavailableip:' + address
+
+        # static
+        elif re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address):
+            ipv4addr = address
+
         else:
-            if re.match("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address):
-                ipv4addr = address
-            else:
-                raise InfobloxBadInputParameter(
-                    'Expected IP or NET address in CIDR format')
+            raise InfobloxBadInputParameter(
+                'Expected IP or NET address in CIDR format')
 
         if payload is None:
             payload = {'name': fqdn,
